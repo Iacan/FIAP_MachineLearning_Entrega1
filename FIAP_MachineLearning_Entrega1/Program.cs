@@ -1,45 +1,108 @@
 ﻿using System;
 using Microsoft.ProjectOxford.Face;
 using System.Threading.Tasks;
+using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
+using Microsoft.Azure.CognitiveServices.Vision.ComputerVision.Models;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.IO;
+using System.Net.Http.Headers;
 
 namespace FIAP_MachineLearning_Entrega1
 {
     class Program
     {
+        // Specify the features to return  
+        private static readonly List<VisualFeatureTypes> features =
+            new List<VisualFeatureTypes>()
+        {
+            VisualFeatureTypes.Categories, VisualFeatureTypes.Description,
+            VisualFeatureTypes.Faces, VisualFeatureTypes.ImageType,
+            VisualFeatureTypes.Tags
+        };
+
         static async Task Main(string[] args)
         {
-            //var image = "https://img.freepik.com/fotos-gratis/3d-rendem-de-uma-mesa-de-madeira-com-uma-imagem-defocussed-de-um-barco-em-um-lago_1048-3432.jpg?size=626&ext=jpg";
-            var image = "https://www.lojaadcos.com.br/belezacomsaude/app/uploads/2018/10/00.protecao-solar.png";
+            string image = Path.Combine(Directory.GetParent(System.IO.Directory.GetCurrentDirectory()).Parent.Parent.Parent.FullName, "FotoExemplos\\rostoperfil.png");
+            //string image = Path.Combine(Directory.GetParent(System.IO.Directory.GetCurrentDirectory()).Parent.Parent.Parent.FullName, "FotoExemplos\\Paisagem.jpg");
 
-            IFaceServiceClient faceServiceClient = new FaceServiceClient("a545b2f7035043e39c953b851f23e7bf",
-                "https://fiap-facenovo.cognitiveservices.azure.com/face/v1.0");
-            var detectedFaces = await faceServiceClient.DetectAsync(image);
-            foreach (var detectedFace in detectedFaces)
+            //Analisa se tem alguma pessoa na foto
+            var flgHuman = Analyze(image).Result;
+
+            if (flgHuman)
             {
-                Console.WriteLine($"{detectedFace.FaceId}");
-            }
+                Console.WriteLine();
+                Console.WriteLine("Tem 1 ou mais pessoas na foto!!!!");
 
-            if (detectedFaces.Length > 0)
-            {
-                var faceAttributes = new[] { FaceAttributeType.Emotion, FaceAttributeType.Age };
+                //Identificação de Face
+                var subscriptionKeyFace = "a545b2f7035043e39c953b851f23e7bf";
 
-                var detectedFacesAtributos = await faceServiceClient.DetectAsync(image,
-                    returnFaceAttributes: faceAttributes);
-
-                foreach (var detectedFace in detectedFacesAtributos)
+                IFaceServiceClient faceServiceClient = new FaceServiceClient(subscriptionKeyFace,
+                        "https://fiap-facenovo.cognitiveservices.azure.com/face/v1.0");
+                
+                using (Stream imageFileStream = File.OpenRead(image))
                 {
-                    Console.WriteLine($"{detectedFace.FaceId}");
-                    Console.WriteLine($"Age = {detectedFace.FaceAttributes.Age}, Happiness = {detectedFace.FaceAttributes.Emotion.Happiness}");
+                    var faces = await faceServiceClient.DetectAsync(imageFileStream,
+                        true,
+                        true,
+                        new FaceAttributeType[] {
+                    FaceAttributeType.Gender,
+                    FaceAttributeType.Age,
+                    FaceAttributeType.Emotion
+                        });
+                    var test =  faces;
 
+                    //Verifica se existe faces na foto 
+                    if (test.Length > 0)
+                    {
+                        foreach (var detectedFace in test)
+                        {
+                            Console.WriteLine();
+                            Console.WriteLine($"{detectedFace.FaceId}");
+                            Console.WriteLine($"Idade = {detectedFace.FaceAttributes.Age}, Felicidade = {detectedFace.FaceAttributes.Emotion.Happiness}");
+                        }
+
+                        Console.ReadLine();
+                    }
+                    else
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine("Não contém nenhum rosto!!!!");
+                        Console.ReadLine();
+                    }
                 }
-
-                Console.ReadLine();
             }
             else
             {
-                Console.WriteLine("Não contém nenhum rosto!!!!");
+                Console.WriteLine("");
+                Console.WriteLine("Não tem pessoas na foto!!!");
                 Console.ReadLine();
             }
         }
+
+        static async Task<bool> Analyze(string image)
+        {
+            string key = "1ab69f70161248e29e02a70568500dee";
+            HttpClient c = new HttpClient();
+            c.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", key);
+            string reqParams = "visualFeatures=Categories,Description&language=en";
+            string uriBase = "https://fiap-computer-vision-novo.cognitiveservices.azure.com/vision/v1.0/analyze";
+            string uri = uriBase + "?" + reqParams;
+
+            FileStream fileStream = new FileStream(image, FileMode.Open, FileAccess.Read);
+            BinaryReader bReader = new BinaryReader(fileStream);
+            byte[] byteData = bReader.ReadBytes((int)fileStream.Length);
+            ByteArrayContent content = new ByteArrayContent(byteData);
+
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            HttpResponseMessage response = await c.PostAsync(uri, content);            
+            string contentString = await response.Content.ReadAsStringAsync();
+            Console.WriteLine("\nAnalysis:\n");
+            Console.WriteLine(contentString);
+            
+            var flgHuman = contentString.Contains("woman") || contentString.Contains("men") ? true : false;
+
+            return flgHuman;
+        } 
     }
 }
